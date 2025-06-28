@@ -1,4 +1,6 @@
 import { test } from "@playwright/test";
+import fs from "fs";
+import path from "path";
 
 /**
  * Disable the timeout for the test.
@@ -54,7 +56,7 @@ async function extractAWBNumbers(page) {
   while (true) {
     // Extract AWB numbers from the current page
     const awbs = await page.$$eval(
-      "td.text-center.text-capitalize span:has-text('delhivery') + br + span a",
+      "td.text-center.text-capitalize span:has-text('delhivery - delhivery') + br + span a",
       (elements) =>
         elements.map(
           (el) => el.textContent?.replace("AWBNO - ", "").trim() || ""
@@ -75,7 +77,7 @@ async function extractAWBNumbers(page) {
     );
     if (await nextButton.isVisible()) {
       await nextButton.click();
-      await page.waitForTimeout(2000); // Wait for the next page to load
+      await page.waitForTimeout(3000); // Wait for the next page to load
     } else {
       break;
     }
@@ -102,29 +104,96 @@ async function loginToDelhivery(browser) {
 }
 
 /**
+ * Utility to get today's date in YYYYMMDD format.
+ */
+function getTodayString() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}`;
+}
+
+/**
+ * Get the next run number for today by checking existing files in logs.
+ */
+function getNextRunNumber(logsDir, todayStr) {
+  if (!fs.existsSync(logsDir)) return 1;
+  const files = fs.readdirSync(logsDir);
+  const regex = new RegExp(`^processed_awb_${todayStr}_(\\d+)\\.json$`);
+  let maxRun = 0;
+  for (const file of files) {
+    const match = file.match(regex);
+    if (match) {
+      const runNum = parseInt(match[1], 10);
+      if (runNum > maxRun) maxRun = runNum;
+    }
+  }
+  return maxRun + 1;
+}
+
+/**
+ * Get all processed AWBs for today (across all runs).
+ */
+function getProcessedAWBsForToday(logsDir: string, todayStr: string): string[] {
+  if (!fs.existsSync(logsDir)) return [];
+  const files = fs.readdirSync(logsDir);
+  const regex = new RegExp(`^processed_awb_${todayStr}_(\\d+)\\.json$`);
+  let awbs: string[] = [];
+  for (const file of files) {
+    if (file.match(regex)) {
+      try {
+        const data = fs.readFileSync(path.join(logsDir, file), "utf-8");
+        const arr: string[] = JSON.parse(data);
+        if (Array.isArray(arr)) awbs.push(...arr);
+      } catch {}
+    }
+  }
+  return awbs;
+}
+
+/**
  * Processes AWB numbers and raises issues for "Behaviour complaint against staff".
  * Stops after successfully raising issues for 3 AWB numbers.
  * @param {import('@playwright/test').Page} page - The logged-in Delhivery page object.
  * @param {string[]} awbNumbers - List of AWB numbers.
  */
-async function processAWBNumbers(page, awbNumbers) {
+async function processAWBNumbers(page, awbNumbers: string[]) {
+  const logsDir = path.join(__dirname, "../logs");
+  const todayStr = getTodayString();
+  const runNumber = getNextRunNumber(logsDir, todayStr);
+  const processedFile = path.join(
+    logsDir,
+    `processed_awb_${todayStr}_${runNumber}.json`
+  );
+  if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+  // Get all already processed AWBs for today
+  const alreadyProcessed: Set<string> = new Set(
+    getProcessedAWBsForToday(logsDir, todayStr)
+  );
   let successCount = 0;
+  let processedThisRun: string[] = [];
 
   for (const [index, awb] of awbNumbers.entries()) {
+    if (alreadyProcessed.has(awb)) {
+      console.log(`Skipping AWB ${awb} (already processed today)`);
+      continue;
+    }
     console.log(`Processing AWB ${index + 1} out of ${awbNumbers.length}`);
-    //if (successCount >= 3) break; // Stop after 3 successful additions
-
     try {
       await searchAWB(page, awb);
-
       if (await isAWBFound(page, awb)) {
         await handleAWB(page, awb);
         successCount++;
+        processedThisRun.push(awb);
       }
     } catch (error) {
       console.error(`Error processing AWB: ${awb}.`, error);
     }
   }
+  // Write processed AWBs for this run
+  fs.writeFileSync(processedFile, JSON.stringify(processedThisRun, null, 2));
 }
 
 async function searchAWB(page, awb) {
@@ -250,7 +319,7 @@ async function handleReattemptOrDelay(page, awb, daysDiff) {
       "button.ap-button.blue.base.rounded.filled[label='Raise this Issue'][event='raise'][type='button']"
     );
     if (await raiseIssueButton.isVisible()) {
-      await raiseIssueButton.click();
+      //await raiseIssueButton.click();
       await page.waitForTimeout(2000);
       console.log(`Issue raised for AWB ${awb}.`);
       //here i needd to add the logic to push awb numbers to a global array
@@ -281,16 +350,20 @@ test.describe("Chembys Auto", () => {
     console.log("Filtered AWBNO Numbers:", awbNumbers);
     console.log("Filtered AWBNO Count:", awbNumbers.length);
 
-    // const loggedInPage = await loginToDelhivery(browser);
-    // await processAWBNumbers(loggedInPage, awbNumbers);
+    const loggedInPage = await loginToDelhivery(browser);
+    await processAWBNumbers(loggedInPage, awbNumbers);
 
-    // // Add more assertions or interactions as needed
-    // if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
-    //   console.log(
-    //     `(${globalThis.raisedAWBNumbers.length} - AWB numbers for which issues were raised): ${globalThis.raisedAWBNumbers}`
-    //   );
-    // } else {
-    //   console.log("No issues were raised for any AWB numbers.");
-    // }
+    // Add more assertions or interactions as needed
+    if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
+      console.log(
+        `(${
+          globalThis.raisedAWBNumbers.length + 1
+        } - AWB numbers for which issues were raised): ${
+          globalThis.raisedAWBNumbers
+        }`
+      );
+    } else {
+      console.log("No issues were raised for any AWB numbers.");
+    }
   });
 });
