@@ -50,11 +50,37 @@ async function filterOrdersByTimeBreached(page) {
  * @returns {Promise<string[]>} - List of AWB numbers.
  */
 async function extractAWBNumbers(page) {
-  return await page.$$eval(
-    "td.text-center.text-capitalize span:has-text('delhivery') + br + span a",
-    (elements) =>
-      elements.map((el) => el.textContent?.replace("AWBNO - ", "").trim() || "")
-  );
+  let allAWBNumbers: string[] = [];
+  while (true) {
+    // Extract AWB numbers from the current page
+    const awbs = await page.$$eval(
+      "td.text-center.text-capitalize span:has-text('delhivery') + br + span a",
+      (elements) =>
+        elements.map(
+          (el) => el.textContent?.replace("AWBNO - ", "").trim() || ""
+        )
+    );
+    allAWBNumbers.push(...awbs);
+
+    // Check if the next button is disabled
+    const isNextDisabled = await page
+      .locator('li.page-item.disabled[aria-label="Next »"]')
+      .isVisible()
+      .catch(() => false);
+    if (isNextDisabled) break;
+
+    // Click the next button
+    const nextButton = page.locator(
+      'li.page-item:not(.disabled) a.page-link:has-text("›")'
+    );
+    if (await nextButton.isVisible()) {
+      await nextButton.click();
+      await page.waitForTimeout(2000); // Wait for the next page to load
+    } else {
+      break;
+    }
+  }
+  return allAWBNumbers;
 }
 
 /**
@@ -224,7 +250,7 @@ async function handleReattemptOrDelay(page, awb, daysDiff) {
       "button.ap-button.blue.base.rounded.filled[label='Raise this Issue'][event='raise'][type='button']"
     );
     if (await raiseIssueButton.isVisible()) {
-      //await raiseIssueButton.click();
+      await raiseIssueButton.click();
       await page.waitForTimeout(2000);
       console.log(`Issue raised for AWB ${awb}.`);
       //here i needd to add the logic to push awb numbers to a global array
@@ -255,16 +281,16 @@ test.describe("Chembys Auto", () => {
     console.log("Filtered AWBNO Numbers:", awbNumbers);
     console.log("Filtered AWBNO Count:", awbNumbers.length);
 
-    const loggedInPage = await loginToDelhivery(browser);
-    await processAWBNumbers(loggedInPage, awbNumbers);
+    // const loggedInPage = await loginToDelhivery(browser);
+    // await processAWBNumbers(loggedInPage, awbNumbers);
 
-    // Add more assertions or interactions as needed
-    if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
-      console.log(
-        `(${globalThis.raisedAWBNumbers.length} - AWB numbers for which issues were raised): ${globalThis.raisedAWBNumbers}`
-      );
-    } else {
-      console.log("No issues were raised for any AWB numbers.");
-    }
+    // // Add more assertions or interactions as needed
+    // if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
+    //   console.log(
+    //     `(${globalThis.raisedAWBNumbers.length} - AWB numbers for which issues were raised): ${globalThis.raisedAWBNumbers}`
+    //   );
+    // } else {
+    //   console.log("No issues were raised for any AWB numbers.");
+    // }
   });
 });
