@@ -2,7 +2,9 @@
   "name": "chembys-automation",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "build": "pkg run.js --targets node18-win-x64 --output chembys-test.exe"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
