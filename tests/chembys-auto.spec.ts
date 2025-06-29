@@ -219,15 +219,18 @@ async function processAWBNumbers(page, awbNumbers: string[]) {
     try {
       await searchAWB(page, awb);
       if (await isAWBFound(page, awb)) {
-        await handleAWB(page, awb);
-        successCount++;
-        processedThisRun.push(awb);
+        // Only add to processedThisRun if ticket creation rule is satisfied
+        const ticketCreated = await handleAWB(page, awb);
+        if (ticketCreated) {
+          successCount++;
+          processedThisRun.push(awb);
+        }
       }
     } catch (error) {
       console.error(`Error processing AWB: ${awb}.`, error);
     }
   }
-  // Write processed AWBs for this run
+  // Write processed AWBs for this run (only those for which ticket was created)
   fs.writeFileSync(processedFile, JSON.stringify(processedThisRun, null, 2));
 }
 
@@ -251,8 +254,9 @@ async function handleAWB(page, awb) {
   await page.waitForTimeout(2000);
 
   if (await isSupportTicketsVisible(page)) {
-    await processSupportTickets(page, awb);
+    return await processSupportTickets(page, awb);
   }
+  return false;
 }
 
 async function isSupportTicketsVisible(page) {
@@ -268,6 +272,7 @@ async function processSupportTickets(page, awb) {
   const needHelpButton = page.locator(
     "button.ap-button.white.base.rounded.filled:has-text('Need Help')"
   );
+  let ticketCreated = false;
 
   if (await needHelpButton.isVisible()) {
     const moreInfoButton = page.locator(
@@ -287,12 +292,14 @@ async function processSupportTickets(page, awb) {
         new Date().setHours(0, 0, 0, 0)
     ) {
       await handleNeedHelp(page, awb, daysDiff);
+      ticketCreated = true;
     } else {
       console.log(
         `Ticket creation rule doesn't satisfy for AWB number: ${awb}`
       );
     }
   }
+  return ticketCreated;
 }
 
 async function handleNeedHelp(page, awb, daysDiff) {
