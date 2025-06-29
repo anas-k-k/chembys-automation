@@ -153,6 +153,41 @@ function getProcessedAWBsForToday(logsDir: string, todayStr: string): string[] {
 }
 
 /**
+ * Get all processed AWBs for the last N days (including today).
+ */
+function getProcessedAWBsForRecentDays(
+  logsDir: string,
+  days: number = 3
+): string[] {
+  if (!fs.existsSync(logsDir)) return [];
+  const files = fs.readdirSync(logsDir);
+  let awbs: string[] = [];
+  const dateStrings: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    dateStrings.push(`${yyyy}${mm}${dd}`);
+  }
+  for (const dateStr of dateStrings) {
+    const regex = new RegExp(`^processed_awb_${dateStr}_(\\d+)\\.json$`);
+    for (const file of files) {
+      if (file.match(regex)) {
+        try {
+          const data = fs.readFileSync(path.join(logsDir, file), "utf-8");
+          const arr: string[] = JSON.parse(data);
+          if (Array.isArray(arr)) awbs.push(...arr);
+        } catch {}
+      }
+    }
+  }
+  return awbs;
+}
+
+/**
  * Processes AWB numbers and raises issues for "Behaviour complaint against staff".
  * Stops after successfully raising issues for 3 AWB numbers.
  * @param {import('@playwright/test').Page} page - The logged-in Delhivery page object.
@@ -168,16 +203,16 @@ async function processAWBNumbers(page, awbNumbers: string[]) {
   );
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
-  // Get all already processed AWBs for today
+  // Get all already processed AWBs for last 3 days
   const alreadyProcessed: Set<string> = new Set(
-    getProcessedAWBsForToday(logsDir, todayStr)
+    getProcessedAWBsForRecentDays(logsDir, 3)
   );
   let successCount = 0;
   let processedThisRun: string[] = [];
 
   for (const [index, awb] of awbNumbers.entries()) {
     if (alreadyProcessed.has(awb)) {
-      console.log(`Skipping AWB ${awb} (already processed today)`);
+      console.log(`Skipping AWB ${awb} (already processed in last 3 days)`);
       continue;
     }
     console.log(`Processing AWB ${index + 1} out of ${awbNumbers.length}`);
