@@ -269,6 +269,7 @@ async function isSupportTicketsVisible(page) {
 async function processSupportTickets(page, awb) {
   let daysDiff = 0;
   let extractedEstimateDeliveryDate: Date | null = null;
+  let isDelayed = false;
   const needHelpButton = page.locator(
     "button.ap-button.white.base.rounded.filled:has-text('Need Help')"
   );
@@ -284,12 +285,14 @@ async function processSupportTickets(page, awb) {
       daysDiff = moreInfoResult.dayDifferenceCalculated;
       extractedEstimateDeliveryDate =
         moreInfoResult.extractedEstimateDeliveryDate;
+      isDelayed = moreInfoResult.isDelayed;
     }
     if (
       daysDiff > 4 &&
-      extractedEstimateDeliveryDate instanceof Date &&
-      extractedEstimateDeliveryDate.setHours(0, 0, 0, 0) <
-        new Date().setHours(0, 0, 0, 0)
+      ((extractedEstimateDeliveryDate instanceof Date &&
+        extractedEstimateDeliveryDate.setHours(0, 0, 0, 0) <
+          new Date().setHours(0, 0, 0, 0)) ||
+        isDelayed)
     ) {
       await handleNeedHelp(page, awb, daysDiff);
       ticketCreated = true;
@@ -314,6 +317,7 @@ async function handleNeedHelp(page, awb, daysDiff) {
 async function handleMoreInfo(page, awb) {
   let dayDifferenceCalculated = 0;
   let extractedDateObj: Date | null = null;
+  let isDelayed = false;
   await page
     .locator(
       "button.ap-button.text.base.rounded.filled.status-action:has-text('More info')"
@@ -337,19 +341,22 @@ async function handleMoreInfo(page, awb) {
       //extract the estimated date from the description span
       // and convert it to a Date object
       const dateSpanDesc = page.locator(
-        'ol.ap-steps__list li[name="ap-steps-step"]:first-of-type span.ap-steps__list__item--circles__description > span[title^="Estimated date:"]'
+        'ol.ap-steps__list li[name="ap-steps-step"]:last-of-type span.ap-steps__list__item--circles__description > span[title^="Estimated date:"]'
       );
 
       if (await dateSpanDesc.isVisible()) {
         const dateTextDesc = await dateSpanDesc.textContent();
         if (dateTextDesc) {
           // Extract only the date part using regex
-          const match = dateTextDesc.match(/Estimated date:\s*(.+)$/);
+          const match = dateTextDesc.match(
+            /Estimated date:\s*([\d]{1,2} \w{3} \d{4})/
+          );
           if (match && match[1]) {
-            const extractedDateStr = match[1].trim(); // e.g., "29 Jun 2025"
+            const extractedDateStr = match[1].trim(); // e.g., "29 Jun 2025" or "1 Jun 2025"
             const extractedEstimatedDate = new Date(extractedDateStr);
-            // If you want to return this date instead, set extractedDateObj = extractedDate2;
             extractedDateObj = extractedEstimatedDate;
+            // Check for 'delayed' (case-insensitive) in the description
+            isDelayed = /delayed/i.test(dateTextDesc);
           }
         }
       }
@@ -368,6 +375,7 @@ async function handleMoreInfo(page, awb) {
   return {
     extractedEstimateDeliveryDate: extractedDateObj,
     dayDifferenceCalculated,
+    isDelayed: !!isDelayed,
   };
 }
 
