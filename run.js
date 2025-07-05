@@ -29,7 +29,7 @@ function log(message) {
 
 log("Starting Chembys automation test in headed mode...");
 
-let child; // Declare child variable so it is defined in the outer scope
+let child;
 try {
   // Directly run Playwright test via CLI
   const command = `node ./node_modules/@playwright/test/cli.js test tests/chembys-auto.spec.ts --headed`;
@@ -55,7 +55,6 @@ try {
       log("Test completed successfully!");
     } else {
       log(`Test failed with exit code: ${code}`);
-
       // Check for test result file
       const testResultFile = path.join(
         process.cwd(),
@@ -70,16 +69,19 @@ try {
           log(`Failed to read test results: ${e}`);
         }
       }
-
       // Save error log location for user reference
       log(`For detailed logs, check: ${logFile}`);
       process.exit(code);
     }
   });
+
+  // Keep the process alive so the window doesn't close immediately
+  process.stdin.resume();
 } catch (err) {
   log(`Test execution error: ${err.message}`);
   if (err.stack) {
     log(`Stack trace: ${err.stack}`);
   }
+  process.stdin.resume();
   process.exit(1);
 }

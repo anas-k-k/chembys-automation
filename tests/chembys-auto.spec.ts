@@ -1,6 +1,7 @@
 import { test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
+import { insertAWB, exportAllToHTML } from "./db";
 
 /**
  * Disable the timeout for the test.
@@ -224,6 +225,12 @@ async function processAWBNumbers(page, awbNumbers: string[]) {
         if (ticketCreated) {
           successCount++;
           processedThisRun.push(awb);
+          // Save to database (AWB, date, category)
+          try {
+            await insertAWB(awb, todayStr, "Reattempt or Delay");
+          } catch (dbErr) {
+            console.error(`Failed to insert AWB ${awb} to DB:`, dbErr);
+          }
         }
       }
     } catch (error) {
@@ -439,6 +446,11 @@ test.describe("Chembys Auto", () => {
 
     const loggedInPage = await loginToDelhivery(browser);
     await processAWBNumbers(loggedInPage, awbNumbers);
+
+    // Export DB to HTML at the end of the run
+    const htmlPath = path.join(__dirname, "../test-report/awb_log.html");
+    await exportAllToHTML(htmlPath);
+    console.log(`AWB log exported to HTML: ${htmlPath}`);
 
     // Add more assertions or interactions as needed
     if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
