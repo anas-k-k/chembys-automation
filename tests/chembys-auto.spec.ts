@@ -444,8 +444,10 @@ test.describe("Chembys Auto", () => {
     console.log("Filtered AWBNO Numbers:", awbNumbers);
     console.log("Filtered AWBNO Count:", awbNumbers.length);
 
-    const loggedInPage = await loginToDelhivery(browser);
-    await processAWBNumbers(loggedInPage, awbNumbers);
+    if (awbNumbers.length > 0) {
+      const loggedInPage = await loginToDelhivery(browser);
+      await processAWBNumbers(loggedInPage, awbNumbers);
+    }
 
     // Add more assertions or interactions as needed
     if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
