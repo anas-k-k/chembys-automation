@@ -170,6 +170,7 @@
             background: #ffe066;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 
 <body>
@@ -179,7 +180,7 @@
         <div id='message' style='display:none;margin-bottom:12px;'></div>
         <div class='filters'>
             <label>AWB No: <input type='text' id='awbFilter' placeholder='Filter by AWB No'></label>
-            <label>Date: <input type='text' id='dateFilter' placeholder='YYYYMMDD'></label>
+            <label>Date: <input type='text' id='dateFilter' placeholder='DD-MMM-YYYY'></label>
             <label>Category: <select id='categoryFilter'>
                     <option value=''>All</option>
                 </select></label>
@@ -187,10 +188,14 @@
         </div>
         <form id='addForm' style='margin-bottom:16px;display:flex;gap:8px;align-items:center;'>
             <input type='text' id='addAwbno' placeholder='AWB No' required style='width:140px;'>
-            <input type='text' id='addDate' placeholder='YYYYMMDD' required style='width:100px;'>
+            <input type='text' id='addDate' placeholder='DD-MMM-YYYY' required style='width:100px;'>
             <input type='text' id='addCategory' placeholder='Category' required style='width:140px;'>
             <button type='submit'>Add Entry</button>
         </form>
+        <button id="exportExcelBtn" title="Export to Excel"
+            style="margin-bottom:12px;background:#ffd700;color:#7c5700;border:1px solid #e6d28a;border-radius:4px;padding:4px 12px;font-weight:bold;float:right;cursor:pointer;">
+            <span style="font-size:1.4em;vertical-align:middle;">&#128190;</span>
+        </button>
         <table id='awbTable'>
             <thead>
                 <tr>
@@ -230,7 +235,7 @@
                         tr.innerHTML =
                             `<td>${row.id}</td>` +
                             `<td>${row.awbno}</td>` +
-                            `<td><input type='text' value='${row.date}' id='editDate${row.id}' style='width:90px;'></td>` +
+                            `<td><input type='text' value='${formatDisplayDate(row.date)}' id='editDate${row.id}' style='width:110px;'></td>` +
                             `<td><input type='text' value='${row.category}' id='editCategory${row.id}' style='width:110px;'></td>` +
                             `<td>
                                 <span title="Save" onclick="saveEdit(${row.id})" style="color:#28a745;cursor:pointer;font-size:1.3em;margin-right:10px;vertical-align:middle;">&#128190;</span>
@@ -238,7 +243,7 @@
                             </td>`;
                     } else {
                         tr.innerHTML =
-                            '<td>' + row.id + '</td><td>' + row.awbno + '</td><td>' + row.date + '</td><td>' + row.category + '</td>' +
+                            '<td>' + row.id + '</td><td>' + row.awbno + '</td><td>' + formatDisplayDate(row.date) + '</td><td>' + row.category + '</td>' +
                             `<td>
                                 <span title="Edit" onclick="editEntry(${row.id})" style="color:#007bff;cursor:pointer;font-size:1.2em;margin-right:8px;">&#9998;</span>
                                 <span title="Delete" onclick="deleteEntry(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.2em;display:inline-block;vertical-align:middle;">&#128465;</span>
@@ -282,6 +287,28 @@
                 paginationDiv.appendChild(nextBtn);
             }
 
+            // Utility to format date from YYYYMMDD to DD-MMM-YYYY
+            function formatDisplayDate(yyyymmdd) {
+                if (!yyyymmdd || typeof yyyymmdd !== 'string' || !/^\d{8}$/.test(yyyymmdd)) return yyyymmdd || '';
+                const yyyy = yyyymmdd.slice(0, 4);
+                const mm = yyyymmdd.slice(4, 6);
+                const dd = yyyymmdd.slice(6, 8);
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return `${dd}-${months[parseInt(mm, 10) - 1]}-${yyyy}`;
+            }
+            // Utility to parse DD-MMM-YYYY to YYYYMMDD
+            function parseDisplayDate(displayDate) {
+                if (!displayDate) return null;
+                const match = displayDate.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+                if (!match) return null;
+                const dd = match[1].padStart(2, '0');
+                const mmm = match[2];
+                const yyyy = match[3];
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const mm = (months.indexOf(mmm) + 1).toString().padStart(2, '0');
+                return `${yyyy}${mm}${dd}`;
+            }
+
             function filterTable() {
                 const awbVal = awbInput.value.trim().toLowerCase();
                 const dateVal = dateInput.value.trim();
@@ -289,23 +316,25 @@
                 filteredRows = allRows.filter(function (row) {
                     let show = true;
                     if (awbVal && !row.awbno.toLowerCase().includes(awbVal)) show = false;
-                    if (dateVal && !row.date.includes(dateVal)) show = false;
+                    if (dateVal && formatDisplayDate(row.date) !== dateVal) show = false;
                     if (catVal && row.category !== catVal) show = false;
                     return show;
                 });
-                // Sort by id descending
                 filteredRows.sort((a, b) => b.id - a.id);
-                currentPage = 1;
                 renderTable();
                 renderPagination();
             }
-            awbInput.addEventListener('input', filterTable);
-            dateInput.addEventListener('input', filterTable);
-            categorySelect.addEventListener('change', filterTable);
+
+            // When filters change, reset to page 1
+            awbInput.addEventListener('input', function () { currentPage = 1; filterTable(); });
+            dateInput.addEventListener('input', function () { currentPage = 1; filterTable(); });
+            categorySelect.addEventListener('change', function () { currentPage = 1; filterTable(); });
+
             function resetFilters() {
                 awbInput.value = '';
                 dateInput.value = '';
                 categorySelect.value = '';
+                currentPage = 1;
                 filterTable();
             }
             window.resetFilters = resetFilters;
@@ -313,7 +342,8 @@
             document.getElementById('addForm').addEventListener('submit', function (e) {
                 e.preventDefault();
                 const awbno = document.getElementById('addAwbno').value.trim();
-                const date = document.getElementById('addDate').value.trim();
+                const dateDisplay = addDateInput.value.trim();
+                const date = parseDisplayDate(dateDisplay);
                 const category = document.getElementById('addCategory').value.trim();
                 if (!awbno || !date || !category) return;
                 fetch('/api/awb_logs', {
@@ -324,11 +354,9 @@
                     .then(res => res.json())
                     .then(result => {
                         if (result.success) {
-                            // Clear form
                             document.getElementById('addAwbno').value = '';
-                            document.getElementById('addDate').value = '';
+                            addDateInput.value = '';
                             document.getElementById('addCategory').value = '';
-                            // Add new row to allRows and re-filter
                             allRows.push({ id: result.id, awbno, date, category });
                             filterTable();
                             showMessage('Saved successfully!', false);
@@ -376,10 +404,11 @@
             function saveEdit(id) {
                 const dateInput = document.getElementById('editDate' + id);
                 const categoryInput = document.getElementById('editCategory' + id);
-                const newDate = dateInput.value.trim();
+                const newDateDisplay = dateInput.value.trim();
+                const newDate = parseDisplayDate(newDateDisplay);
                 const newCategory = categoryInput.value.trim();
                 if (!/^\d{8}$/.test(newDate)) {
-                    showMessage('Date must be in YYYYMMDD format.', true);
+                    showMessage('Date must be in DD-MMM-YYYY format.', true);
                     dateInput.focus();
                     return;
                 }
@@ -415,6 +444,10 @@
                 fetch('/api/awb_logs')
                     .then(res => res.json())
                     .then(rows => {
+                        console.log('Fetched rows:', rows);
+                        if (!Array.isArray(rows)) {
+                            throw new Error('API did not return an array');
+                        }
                         allRows = rows;
                         // Populate category filter
                         categorySelect.innerHTML = '<option value="">All</option>';
@@ -429,11 +462,60 @@
                         filterTable();
                     })
                     .catch(err => {
+                        console.error('Error loading AWB data:', err);
                         tableBody.innerHTML = '<tr><td colspan="5">Failed to load data</td></tr>';
                     });
             }
             // Initial data fetch
             fetchData();
+
+            document.getElementById('exportExcelBtn').addEventListener('click', function () {
+                let rows = filteredRows.length ? filteredRows : allRows;
+                let ws_data = [
+                    ['ID', 'AWB No', 'Date', 'Category']
+                ];
+                rows.forEach(row => {
+                    ws_data.push([
+                        row.id,
+                        row.awbno,
+                        formatDisplayDate(row.date),
+                        row.category
+                    ]);
+                });
+                let wb = XLSX.utils.book_new();
+                let ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+                // Style header row
+                const headerStyle = {
+                    fill: { patternType: 'solid', fgColor: { rgb: 'FFD700' } },
+                    font: { bold: true, color: { rgb: '7C5700' } }
+                };
+                // Style for odd/even rows
+                const rowStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFBE6' } } };
+                const evenRowStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFF8DC' } } };
+
+                // Apply styles
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                    const cell = ws[XLSX.utils.encode_cell({ r: 0, c: C })];
+                    if (cell) cell.s = headerStyle;
+                }
+                for (let R = 1; R <= range.e.r; ++R) {
+                    for (let C = range.s.c; C <= range.e.c; ++C) {
+                        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+                        if (cell) cell.s = (R % 2 === 0) ? evenRowStyle : rowStyle;
+                    }
+                }
+                ws['!cols'] = [
+                    { wch: 8 }, // ID
+                    { wch: 18 }, // AWB No
+                    { wch: 14 }, // Date
+                    { wch: 18 }  // Category
+                ];
+                wb.Sheets['AWB Log'] = ws;
+                wb.SheetNames.push('AWB Log');
+                XLSX.writeFile(wb, 'awb_log_export.xlsx');
+            });
 
             function showMessage(msg, isError) {
                 const msgDiv = document.getElementById('message');
