@@ -170,6 +170,8 @@
             background: #ffe066;
         }
     </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 
@@ -241,6 +243,11 @@
                                 <span title="Save" onclick="saveEdit(${row.id})" style="color:#28a745;cursor:pointer;font-size:1.3em;margin-right:10px;vertical-align:middle;">&#128190;</span>
                                 <span title="Cancel" onclick="cancelEdit(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.3em;vertical-align:middle;">&#10060;</span>
                             </td>`;
+                        tableBody.appendChild(tr);
+                        // Attach flatpickr to the edit date input
+                        setTimeout(() => {
+                            flatpickr(`#editDate${row.id}`, { dateFormat: "d-M-Y", allowInput: true });
+                        }, 0);
                     } else {
                         tr.innerHTML =
                             '<td>' + row.id + '</td><td>' + row.awbno + '</td><td>' + formatDisplayDate(row.date) + '</td><td>' + row.category + '</td>' +
@@ -248,8 +255,8 @@
                                 <span title="Edit" onclick="editEntry(${row.id})" style="color:#007bff;cursor:pointer;font-size:1.2em;margin-right:8px;">&#9998;</span>
                                 <span title="Delete" onclick="deleteEntry(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.2em;display:inline-block;vertical-align:middle;">&#128465;</span>
                             </td>`;
+                        tableBody.appendChild(tr);
                     }
-                    tableBody.appendChild(tr);
                 });
                 renderSummary();
             }
@@ -530,6 +537,9 @@
                 msgDiv.style.boxShadow = '0 1px 4px #0001';
                 setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
             }
+
+            flatpickr("#addDate", { dateFormat: "d-M-Y", altInput: false, allowInput: true });
+            flatpickr("#dateFilter", { dateFormat: "d-M-Y", altInput: false, allowInput: true });
         </script>
     </div>
 </body>
