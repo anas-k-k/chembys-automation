@@ -53,4 +53,18 @@ function deleteAllRows() {
   });
 }
 
-module.exports = { insertAWB, dbPath, deleteAllRows };
+function getLatestAWBEntryDate(awbno) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      "SELECT date FROM awb_logs WHERE awbno = ? ORDER BY date DESC LIMIT 1",
+      [awbno],
+      (err, row) => {
+        if (err) return reject(err);
+        if (row && row.date) resolve(row.date);
+        else resolve(null);
+      }
+    );
+  });
+}
+
+module.exports = { insertAWB, dbPath, deleteAllRows, getLatestAWBEntryDate };

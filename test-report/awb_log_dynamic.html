@@ -84,6 +84,7 @@
             background: #fff8dc;
             color: #7c5700;
             box-shadow: 0 1px 4px #b8860b22;
+            margin-bottom: 16px;
         }
 
         .pagination {
@@ -225,12 +226,29 @@
                 const end = start + PAGE_SIZE;
                 filteredRows.slice(start, end).forEach(function (row) {
                     const tr = document.createElement('tr');
-                    tr.innerHTML = '<td>' + row.id + '</td><td>' + row.awbno + '</td><td>' + row.date + '</td><td>' + row.category + '</td>' +
-                        `<td><span title="Delete" onclick="deleteEntry(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.2em;display:inline-block;vertical-align:middle;">&#128465;</span></td>`;
+                    if (row._editing) {
+                        tr.innerHTML =
+                            `<td>${row.id}</td>` +
+                            `<td>${row.awbno}</td>` +
+                            `<td><input type='text' value='${row.date}' id='editDate${row.id}' style='width:90px;'></td>` +
+                            `<td><input type='text' value='${row.category}' id='editCategory${row.id}' style='width:110px;'></td>` +
+                            `<td>
+                                <span title="Save" onclick="saveEdit(${row.id})" style="color:#28a745;cursor:pointer;font-size:1.3em;margin-right:10px;vertical-align:middle;">&#128190;</span>
+                                <span title="Cancel" onclick="cancelEdit(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.3em;vertical-align:middle;">&#10060;</span>
+                            </td>`;
+                    } else {
+                        tr.innerHTML =
+                            '<td>' + row.id + '</td><td>' + row.awbno + '</td><td>' + row.date + '</td><td>' + row.category + '</td>' +
+                            `<td>
+                                <span title="Edit" onclick="editEntry(${row.id})" style="color:#007bff;cursor:pointer;font-size:1.2em;margin-right:8px;">&#9998;</span>
+                                <span title="Delete" onclick="deleteEntry(${row.id})" style="color:#dc3545;cursor:pointer;font-size:1.2em;display:inline-block;vertical-align:middle;">&#128465;</span>
+                            </td>`;
+                    }
                     tableBody.appendChild(tr);
                 });
                 renderSummary();
             }
+
             function renderPagination() {
                 paginationDiv.innerHTML = '';
                 const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE) || 1;
@@ -263,6 +281,7 @@
                 nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderTable(); renderPagination(); } };
                 paginationDiv.appendChild(nextBtn);
             }
+
             function filterTable() {
                 const awbVal = awbInput.value.trim().toLowerCase();
                 const dateVal = dateInput.value.trim();
@@ -339,6 +358,58 @@
                         showMessage('Failed to delete entry: ' + err, true);
                     });
             }
+            // Edit entry
+            function editEntry(id) {
+                filteredRows.forEach(r => r._editing = false);
+                allRows.forEach(r => r._editing = false);
+                const row = allRows.find(r => r.id === id);
+                if (row) row._editing = true;
+                filterTable();
+            }
+
+            function cancelEdit(id) {
+                const row = allRows.find(r => r.id === id);
+                if (row) row._editing = false;
+                filterTable();
+            }
+
+            function saveEdit(id) {
+                const dateInput = document.getElementById('editDate' + id);
+                const categoryInput = document.getElementById('editCategory' + id);
+                const newDate = dateInput.value.trim();
+                const newCategory = categoryInput.value.trim();
+                if (!/^\d{8}$/.test(newDate)) {
+                    showMessage('Date must be in YYYYMMDD format.', true);
+                    dateInput.focus();
+                    return;
+                }
+                fetch(`/api/awb_logs/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: newDate, category: newCategory })
+                })
+                    .then(res => res.json())
+                    .then(result => {
+                        if (result.success) {
+                            const row = allRows.find(r => r.id === id);
+                            if (row) {
+                                row.date = newDate;
+                                row.category = newCategory;
+                                row._editing = false;
+                            }
+                            filterTable();
+                            showMessage('Updated successfully!', false);
+                        } else {
+                            showMessage('Failed to update entry: ' + (result.error || ''), true);
+                        }
+                    })
+                    .catch(err => {
+                        showMessage('Failed to update entry: ' + err, true);
+                    });
+            }
+            window.editEntry = editEntry;
+            window.cancelEdit = cancelEdit;
+            window.saveEdit = saveEdit;
             // Fetch data helper
             function fetchData() {
                 fetch('/api/awb_logs')

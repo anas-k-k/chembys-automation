@@ -1,7 +1,7 @@
 import { test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
-import { insertAWB } from "./db";
+import { insertAWB, getLatestAWBEntryDate } from "./db";
 
 /**
  * Disable the timeout for the test.
@@ -116,129 +116,65 @@ function getTodayString() {
 }
 
 /**
- * Get the next run number for today by checking existing files in logs.
+ * Get all AWBs eligible for processing based on DB entry date.
  */
-function getNextRunNumber(logsDir, todayStr) {
-  if (!fs.existsSync(logsDir)) return 1;
-  const files = fs.readdirSync(logsDir);
-  const regex = new RegExp(`^processed_awb_${todayStr}_(\\d+)\\.json$`);
-  let maxRun = 0;
-  for (const file of files) {
-    const match = file.match(regex);
-    if (match) {
-      const runNum = parseInt(match[1], 10);
-      if (runNum > maxRun) maxRun = runNum;
-    }
-  }
-  return maxRun + 1;
-}
-
-/**
- * Get all processed AWBs for today (across all runs).
- */
-function getProcessedAWBsForToday(logsDir: string, todayStr: string): string[] {
-  if (!fs.existsSync(logsDir)) return [];
-  const files = fs.readdirSync(logsDir);
-  const regex = new RegExp(`^processed_awb_${todayStr}_(\\d+)\\.json$`);
-  let awbs: string[] = [];
-  for (const file of files) {
-    if (file.match(regex)) {
-      try {
-        const data = fs.readFileSync(path.join(logsDir, file), "utf-8");
-        const arr: string[] = JSON.parse(data);
-        if (Array.isArray(arr)) awbs.push(...arr);
-      } catch {}
-    }
-  }
-  return awbs;
-}
-
-/**
- * Get all processed AWBs for the last N days (including today).
- */
-function getProcessedAWBsForRecentDays(
-  logsDir: string,
-  days: number = 3
-): string[] {
-  if (!fs.existsSync(logsDir)) return [];
-  const files = fs.readdirSync(logsDir);
-  let awbs: string[] = [];
-  const dateStrings: string[] = [];
+async function getEligibleAWBsFromDB(
+  awbNumbers: string[]
+): Promise<{ awbno: string; daydiff: number }[]> {
+  const eligible: { awbno: string; daydiff: number }[] = [];
   const now = new Date();
-  for (let i = 0; i < days; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    dateStrings.push(`${yyyy}${mm}${dd}`);
-  }
-  for (const dateStr of dateStrings) {
-    const regex = new RegExp(`^processed_awb_${dateStr}_(\\d+)\\.json$`);
-    for (const file of files) {
-      if (file.match(regex)) {
-        try {
-          const data = fs.readFileSync(path.join(logsDir, file), "utf-8");
-          const arr: string[] = JSON.parse(data);
-          if (Array.isArray(arr)) awbs.push(...arr);
-        } catch {}
-      }
+  for (const awb of awbNumbers) {
+    const lastDateStr = await getLatestAWBEntryDate(awb); // should return YYYYMMDD or null
+    let daydiff = -1; // default to eligible if not found
+    if (!lastDateStr) {
+      eligible.push({ awbno: awb, daydiff });
+      continue;
     }
+    const yyyy = parseInt(lastDateStr.slice(0, 4), 10);
+    const mm = parseInt(lastDateStr.slice(4, 6), 10) - 1;
+    const dd = parseInt(lastDateStr.slice(6, 8), 10);
+    const lastDate = new Date(yyyy, mm, dd);
+    daydiff = Math.floor(
+      (now.getTime() - lastDate.getTime()) / (1000 * 3600 * 24)
+    );
+
+    eligible.push({ awbno: awb, daydiff });
   }
-  return awbs;
+  return eligible;
 }
 
 /**
  * Processes AWB numbers and raises issues for "Behaviour complaint against staff".
  * Stops after successfully raising issues for 3 AWB numbers.
  * @param {import('@playwright/test').Page} page - The logged-in Delhivery page object.
- * @param {string[]} awbNumbers - List of AWB numbers.
+ * @param {{awbno: string, daydiff: number}[]} awbObjects - List of AWB objects.
  */
-async function processAWBNumbers(page, awbNumbers: string[]) {
-  const logsDir = path.join(__dirname, "../logs");
-  const todayStr = getTodayString();
-  const runNumber = getNextRunNumber(logsDir, todayStr);
-  const processedFile = path.join(
-    logsDir,
-    `processed_awb_${todayStr}_${runNumber}.json`
-  );
-  if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
-
-  // Get all already processed AWBs for last 3 days
-  const alreadyProcessed: Set<string> = new Set(
-    getProcessedAWBsForRecentDays(logsDir, 3)
-  );
+async function processAWBNumbers(page, awbObjects) {
   let successCount = 0;
   let processedThisRun: string[] = [];
 
-  for (const [index, awb] of awbNumbers.entries()) {
-    if (alreadyProcessed.has(awb)) {
+  for (const [index, awbObj] of awbObjects.entries()) {
+    const awb = awbObj.awbno;
+    const daydiff = awbObj.daydiff;
+    if (daydiff > 0 && daydiff <= 3) {
       console.log(`Skipping AWB ${awb} (already processed in last 3 days)`);
       continue;
     }
-    console.log(`Processing AWB ${index + 1} out of ${awbNumbers.length}`);
+    console.log(`Processing AWB ${index + 1} out of ${awbObjects.length}`);
     try {
       await searchAWB(page, awb);
       if (await isAWBFound(page, awb)) {
         // Only add to processedThisRun if ticket creation rule is satisfied
-        const ticketCreated = await handleAWB(page, awb);
+        const ticketCreated = await handleAWB(page, awb, daydiff);
         if (ticketCreated) {
           successCount++;
           processedThisRun.push(awb);
-          // Save to database (AWB, date, category)
-          try {
-            await insertAWB(awb, todayStr, "Reattempt or Delay");
-          } catch (dbErr) {
-            console.error(`Failed to insert AWB ${awb} to DB:`, dbErr);
-          }
         }
       }
     } catch (error) {
       console.error(`Error processing AWB: ${awb}.`, error);
     }
   }
-  // Write processed AWBs for this run (only those for which ticket was created)
-  fs.writeFileSync(processedFile, JSON.stringify(processedThisRun, null, 2));
 }
 
 async function searchAWB(page, awb) {
@@ -253,7 +189,7 @@ async function isAWBFound(page, awb) {
   return await resultDiv.isVisible();
 }
 
-async function handleAWB(page, awb) {
+async function handleAWB(page, awb, daydiff) {
   const resultDiv = page.locator(
     `.ucp__global-search__result >> text=AWB ${awb}`
   );
@@ -261,7 +197,7 @@ async function handleAWB(page, awb) {
   await page.waitForTimeout(2000);
 
   if (await isSupportTicketsVisible(page)) {
-    return await processSupportTickets(page, awb);
+    return await processSupportTickets(page, awb, daydiff);
   }
   return false;
 }
@@ -273,8 +209,10 @@ async function isSupportTicketsVisible(page) {
   return await supportTicketsSpan.isVisible();
 }
 
-async function processSupportTickets(page, awb) {
-  let daysDiff = 0;
+async function processSupportTickets(page, awb, lastrundaydiff) {
+  let daysDiff: number = 0;
+  let lastrunDaysdiff: number =
+    typeof lastrundaydiff === "number" ? lastrundaydiff : 0;
   let extractedEstimateDeliveryDate: Date | null = null;
   let isDelayed = false;
   const needHelpButton = page.locator(
@@ -296,12 +234,13 @@ async function processSupportTickets(page, awb) {
     }
     if (
       daysDiff > 4 &&
-      ((extractedEstimateDeliveryDate instanceof Date &&
+      ((extractedEstimateDeliveryDate &&
+        extractedEstimateDeliveryDate instanceof Date &&
         extractedEstimateDeliveryDate.setHours(0, 0, 0, 0) <
           new Date().setHours(0, 0, 0, 0)) ||
         isDelayed)
     ) {
-      await handleNeedHelp(page, awb, daysDiff);
+      await handleNeedHelp(page, awb, daysDiff, lastrunDaysdiff);
       ticketCreated = true;
     } else {
       console.log(
@@ -312,13 +251,22 @@ async function processSupportTickets(page, awb) {
   return ticketCreated;
 }
 
-async function handleNeedHelp(page, awb, daysDiff) {
+async function handleNeedHelp(page, awb, daysDiff, lastrunDaysdiff) {
   await page
     .locator("button.ap-button.white.base.rounded.filled:has-text('Need Help')")
     .click();
   await page.waitForTimeout(2000);
 
-  await handleReattemptOrDelay(page, awb, daysDiff);
+  if (lastrunDaysdiff == -1) {
+    await handleReattemptOrDelay(page, awb, daysDiff);
+  } else if (lastrunDaysdiff > 3) {
+    await handleBehaviourIssue(page, awb, daysDiff);
+  } else {
+    await handleNeedHelpClose(page);
+    console.log(
+      `No action taken for AWB ${awb}: lastrunDaysdiff=${lastrunDaysdiff}`
+    );
+  }
 }
 
 async function handleMoreInfo(page, awb) {
@@ -387,6 +335,7 @@ async function handleMoreInfo(page, awb) {
 }
 
 async function handleReattemptOrDelay(page, awb, daysDiff) {
+  const todayStr = getTodayString();
   const reattemptOrDelaySpan = page.locator(
     "span.badge.custom.small.pill.outlined.badge:has(span:has-text('Reattempt or Delay in delivery'))"
   );
@@ -415,6 +364,12 @@ async function handleReattemptOrDelay(page, awb, daysDiff) {
     if (await raiseIssueButton.isVisible()) {
       //await raiseIssueButton.click();
       await page.waitForTimeout(2000);
+      // Save to database (AWB, date, category)
+      try {
+        await insertAWB(awb, todayStr, "Reattempt or Delay");
+      } catch (dbErr) {
+        console.error(`Failed to insert AWB ${awb} to DB:`, dbErr);
+      }
       console.log(`Issue raised for AWB ${awb}.`);
       //here i needd to add the logic to push awb numbers to a global array
       if (!globalThis.raisedAWBNumbers) {
@@ -427,6 +382,55 @@ async function handleReattemptOrDelay(page, awb, daysDiff) {
       .locator(".modal-header__actions .modal-header__actions--close")
       .click();
   }
+}
+
+async function handleBehaviourIssue(page, awb, daysDiff) {
+  const todayStr = getTodayString();
+  const reattemptOrDelaySpan = page.locator(
+    "span.badge.custom.small.pill.outlined.badge:has(span:has-text('Behaviour complaint against staff'))"
+  );
+
+  if (await reattemptOrDelaySpan.isVisible()) {
+    await reattemptOrDelaySpan.click();
+    await page.waitForTimeout(2000);
+
+    await page
+      .getByPlaceholder("Please describe your issue here")
+      .fill(
+        "Delivery is delayed, and the staff member handling the delivery is unresponsive and does not assist with resolving the issue."
+      );
+    await page.waitForTimeout(2000);
+
+    const raiseIssueButton = page.locator(
+      "button.ap-button.blue.base.rounded.filled[label='Raise this Issue'][event='raise'][type='button']"
+    );
+    if (await raiseIssueButton.isVisible()) {
+      //await raiseIssueButton.click();
+      await page.waitForTimeout(2000);
+      // Save to database (AWB, date, category)
+      try {
+        await insertAWB(awb, todayStr, "Behaviour complaint against staff");
+      } catch (dbErr) {
+        console.error(`Failed to insert AWB ${awb} to DB:`, dbErr);
+      }
+      console.log(`Issue raised for AWB ${awb}.`);
+      //here i needd to add the logic to push awb numbers to a global array
+      if (!globalThis.raisedAWBNumbers) {
+        globalThis.raisedAWBNumbers = [];
+      }
+      globalThis.raisedAWBNumbers.push(`${awb} - ${daysDiff} Old Days`);
+    }
+
+    await page
+      .locator(".modal-header__actions .modal-header__actions--close")
+      .click();
+  }
+}
+
+async function handleNeedHelpClose(page) {
+  await page
+    .locator(".modal-header__actions .modal-header__actions--close")
+    .click();
 }
 
 /**
@@ -444,19 +448,22 @@ test.describe("Chembys Auto", () => {
     console.log("Filtered AWBNO Numbers:", awbNumbers);
     console.log("Filtered AWBNO Count:", awbNumbers.length);
 
-    if (awbNumbers.length > 0) {
+    const eligibleAWBs = await getEligibleAWBsFromDB(awbNumbers);
+    console.log(
+      "Eligible AWBNO Numbers:",
+      eligibleAWBs.map((e) => e.awbno)
+    );
+    console.log("Eligible AWBNO Count:", eligibleAWBs.length);
+
+    if (eligibleAWBs.length > 0) {
       const loggedInPage = await loginToDelhivery(browser);
-      await processAWBNumbers(loggedInPage, awbNumbers);
+      await processAWBNumbers(loggedInPage, eligibleAWBs);
     }
 
     // Add more assertions or interactions as needed
     if (globalThis.raisedAWBNumbers && globalThis.raisedAWBNumbers.length > 0) {
       console.log(
-        `(${
-          globalThis.raisedAWBNumbers.length + 1
-        } - AWB numbers for which issues were raised): ${
-          globalThis.raisedAWBNumbers
-        }`
+        `(${globalThis.raisedAWBNumbers.length} - AWB numbers for which issues were raised): ${globalThis.raisedAWBNumbers}`
       );
     } else {
       console.log("No issues were raised for any AWB numbers.");

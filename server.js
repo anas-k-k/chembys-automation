@@ -8,9 +8,6 @@ const fs = require("fs");
 const app = express();
 const PORT = 3000;
 
-// Serve static files (HTML, CSS, JS)
-app.use(express.static(path.join(__dirname, "test-report")));
-
 // Parse JSON bodies
 app.use(bodyParser.json());
 
@@ -31,6 +28,12 @@ if (isPkg) {
     fs.writeFileSync(dbAssetPath, fs.readFileSync(assetSource));
   }
 }
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
 // API endpoint to get AWB logs as JSON
 app.get("/api/awb_logs", (req, res) => {
@@ -70,6 +73,29 @@ app.delete("/api/awb_logs/:id", (req, res) => {
   });
 });
 
+// Update a log by id (date and category only)
+app.put("/api/awb_logs/:id", (req, res) => {
+  const id = req.params.id;
+  const { date, category } = req.body;
+  if (!date || !category)
+    return res.json({ success: false, error: "Missing fields" });
+  const db = new sqlite3.Database(dbAssetPath);
+  db.run(
+    "UPDATE awb_logs SET date = ?, category = ? WHERE id = ?",
+    [date, category, id],
+    function (err) {
+      db.close();
+      if (err) return res.json({ success: false, error: err.message });
+      if (this.changes === 0)
+        return res.json({ success: false, error: "Not found" });
+      res.json({ success: true });
+    }
+  );
+});
+
+// Serve static files (HTML, CSS, JS) AFTER API routes
+app.use(express.static(path.join(__dirname, "test-report")));
+
 // Fallback: serve awb_log_dynamic.html for root
 app.get("/", (req, res) => {
   // Use pkg's path for assets if running as a pkg executable
@@ -82,6 +108,13 @@ app.get("/", (req, res) => {
       )
     : path.join(__dirname, "test-report", "awb_log_dynamic.html");
   res.sendFile(htmlPath);
+});
+
+// Remove the buggy app.all("*", ...) and replace with proper catch-all middleware
+app.use((req, res) => {
+  res
+    .status(404)
+    .json({ error: "Not found", method: req.method, url: req.url });
 });
 
 app.listen(PORT, () => {
