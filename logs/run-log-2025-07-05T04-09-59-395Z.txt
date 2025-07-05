@@ -1,0 +1,23 @@
+[2025-07-05T04:09:59.396Z] Starting Chembys automation test in headed mode...
+[2025-07-05T04:09:59.398Z] Executing command: node ./node_modules/@playwright/test/cli.js test tests/chembys-auto.spec.ts --headed
+[2025-07-05T04:10:06.282Z] STDOUT: Running 1 test using 1 worker
+[2025-07-05T04:10:06.284Z] STDOUT: 
+[2025-07-05T04:10:06.825Z] STDOUT: [1A[2K[1/1] [chromium] › tests\chembys-auto.spec.ts:436:7 › Chembys Auto › should load the Chembys Auto page
+[2025-07-05T04:10:06.846Z] STDOUT: [1A[2K
+[2025-07-05T04:10:06.847Z] STDOUT: 1) [chromium] › tests\chembys-auto.spec.ts:436:7 › Chembys Auto › should load the Chembys Auto page 
+
+    Error: browserType.launch: Executable doesn't exist at C:\Projects\Playwright\chembys-automation\browsers\chromium-1179\chrome-win\chrome.exe
+    ╔═════════════════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright Test or Playwright was just installed or updated. ║
+    ║ Please run the following command to download new browsers:              ║
+    ║                                                                         ║
+    ║     npx playwright install                                              ║
+    ║                                                                         ║
+    ║ <3 Playwright Team                                                      ║
+    ╚═════════════════════════════════════════════════════════════════════════╝
+[2025-07-05T04:10:06.864Z] STDOUT: [1A[2K
+[2025-07-05T04:10:06.865Z] STDOUT: 1 failed
+    [chromium] › tests\chembys-auto.spec.ts:436:7 › Chembys Auto › should load the Chembys Auto page
+[2025-07-05T04:10:06.889Z] STDOUT: 
+[2025-07-05T04:10:06.890Z] STDOUT: [36m  Serving HTML report at http://localhost:9323. Press Ctrl+C to quit.[39m
+[2025-07-05T04:11:38.444Z] ERROR: ^C
