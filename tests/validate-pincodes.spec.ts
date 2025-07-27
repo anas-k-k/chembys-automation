@@ -33,6 +33,8 @@ function loadPincodesFromXlsx() {
 const PINCODE_LIST = loadPincodesFromXlsx();
 
 test("Validate pincodes in Chembys Orders", async ({ page }) => {
+  // Collect API error orders globally
+  const apiErrorOrders: { orderId: string; pincode: string }[] = [];
   test.setTimeout(0); // Disable timeout for this test
 
   // Helper function to uncheck a checkbox if needed
@@ -231,13 +233,92 @@ test("Validate pincodes in Chembys Orders", async ({ page }) => {
             orderId: currentOrderId,
             pincode: currentPincode,
           });
+          // Call the update-note-order API for Delhivery (shipmentmethod=13) with CSRF token and check for error in response
+          const apiError = await page.evaluate(
+            async ({ orderId, pincode }) => {
+              let csrfToken = "";
+              const meta = document.querySelector('meta[name="csrf-token"]');
+              if (meta) {
+                csrfToken = meta.getAttribute("content") || "";
+              } else {
+                const input = document.querySelector('input[name="_token"]');
+                if (input) csrfToken = (input as HTMLInputElement).value;
+              }
+              if (!csrfToken) {
+                throw new Error("CSRF token not found on page");
+              }
+              const formData = new FormData();
+              formData.append("selectedidsshipment[]", orderId);
+              formData.append("shipmentmethod", "13");
+              formData.append("manualshipment", "unchecked");
+              formData.append("orderstatus", "pending");
+              formData.append("_token", csrfToken);
+              const resp = await fetch(
+                "https://chembys.com/admin/orders/update-note-order",
+                {
+                  method: "POST",
+                  credentials: "include",
+                  body: formData,
+                }
+              );
+              const text = await resp.text();
+              if (text.toLowerCase().includes("error")) {
+                return { orderId, pincode };
+              }
+              return null;
+            },
+            { orderId: currentOrderId, pincode: currentPincode }
+          );
+          if (apiError) {
+            apiErrorOrders.push(apiError);
+          }
         } else {
           await selectShipmentMethod(page, "Shiprocket");
           shiprocketOrders.push({
             orderId: currentOrderId,
             pincode: currentPincode,
           });
+          // Call the update-note-order API for Shiprocket (shipmentmethod=12) with CSRF token and check for error in response
+          const apiError = await page.evaluate(
+            async ({ orderId, pincode }) => {
+              let csrfToken = "";
+              const meta = document.querySelector('meta[name="csrf-token"]');
+              if (meta) {
+                csrfToken = meta.getAttribute("content") || "";
+              } else {
+                const input = document.querySelector('input[name="_token"]');
+                if (input) csrfToken = (input as HTMLInputElement).value;
+              }
+              if (!csrfToken) {
+                throw new Error("CSRF token not found on page");
+              }
+              const formData = new FormData();
+              formData.append("selectedidsshipment[]", orderId);
+              formData.append("shipmentmethod", "12");
+              formData.append("manualshipment", "unchecked");
+              formData.append("orderstatus", "pending");
+              formData.append("_token", csrfToken);
+              const resp = await fetch(
+                "https://chembys.com/admin/orders/update-note-order",
+                {
+                  method: "POST",
+                  credentials: "include",
+                  body: formData,
+                }
+              );
+              const text = await resp.text();
+              if (text.toLowerCase().includes("error")) {
+                return { orderId, pincode };
+              }
+              return null;
+            },
+            { orderId: currentOrderId, pincode: currentPincode }
+          );
+          if (apiError) {
+            apiErrorOrders.push(apiError);
+          }
         }
+        await page.waitForTimeout(3000);
       }
 
       await uncheckCheckboxIfNeeded(checkbox, checkboxChecked, page);
@@ -247,7 +328,24 @@ test("Validate pincodes in Chembys Orders", async ({ page }) => {
   }
 
   while (true) {
+    // Move scroll bar to center if at the top
+    const scrollY = await page.evaluate(() => window.scrollY);
+    if (scrollY === 0) {
+      await page.evaluate(() => {
+        window.scrollTo({
+          top: document.body.scrollHeight / 2,
+          behavior: "instant",
+        });
+      });
+      await page.waitForTimeout(500);
+    }
     await processOrderRows();
+
+    // Output API error orders if any
+    if (apiErrorOrders.length > 0) {
+      console.log("\n=== API Error Orders ===");
+      console.table(apiErrorOrders);
+    }
 
     // Check for next page button
     const nextBtn = await page.$(
