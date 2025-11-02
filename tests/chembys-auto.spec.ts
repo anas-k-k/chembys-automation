@@ -94,12 +94,18 @@ async function extractAWBNumbers(page) {
 async function loginToDelhivery(browser) {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto("https://one.delhivery.com/login?redirectFrom=/home");
+  await page.goto("https://one.delhivery.com/v2/login");
+  //await page.goto("https://ucp-auth.delhivery.com/earthshaker/realms/ucp-LFE5LKIM1KZP/protocol/openid-connect/auth?client_id=ucp-vue-frontend&code_challenge=iR6-OYA5NZxfylUbYX7VBn8g_4Ut59LvwxaBuU_ZpWo&code_challenge_method=S256&login_hint=shanjalal%40gmail.com&nonce=7d3c17d9-7613-46ad-8ee8-963c80dceb77&realm=ucp-LFE5LKIM1KZP&redirect_uri=https%3A%2F%2Fone.delhivery.com%2Fv2%2Fdashboard&response_type=code&scope=openid&state=eyJyZWFsbSI6InVjcC1MRkU1TEtJTTFLWlAiLCJpbnN0YW5jZSI6ImVhcnRoc2hha2VyIiwiZW1haWwiOiJzaGFuamFsYWxAZ21haWwuY29tIiwicmVxdWVzdF9pZCI6IjljZDEzMmE2LTg2NGYtMTFmMC04MzdiLTFlYmI0YjE2ZWM1NCIsInZlcnNpb24iOjE4fQ%3D%3D");
+
+  // Use the specific CSS selector for the email input field
   await page
-    .getByPlaceholder("Enter your email ID")
+    .locator(
+      "#root > div > div > div.bg-delhivery-background-default.rounded-lg.shadow-delhivery-lg.w-full.max-w-md.relative.z-10 > div.w-full.max-w-sm.mx-auto.bg-delhivery-background-default.font-ibm.p-8 > form > div:nth-child(1) > div > div.flex.relative.w-full > section > input"
+    )
     .fill("shanjalal@gmail.com");
-  await page.getByRole("button", { name: "Proceed" }).click();
-  await page.locator("#password").fill("Shayaan@1983");
+
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.locator("#password").fill("Shahban@1983");
   await page.getByRole("button", { name: "Login" }).click();
   return page;
 }
@@ -362,7 +368,7 @@ async function handleReattemptOrDelay(page, awb, daysDiff) {
       "button.ap-button.blue.base.rounded.filled[label='Raise this Issue'][event='raise'][type='button']"
     );
     if (await raiseIssueButton.isVisible()) {
-      //await raiseIssueButton.click();
+      await raiseIssueButton.click();
       await page.waitForTimeout(2000);
       // Save to database (AWB, date, category)
       try {
@@ -405,7 +411,7 @@ async function handleBehaviourIssue(page, awb, daysDiff) {
       "button.ap-button.blue.base.rounded.filled[label='Raise this Issue'][event='raise'][type='button']"
     );
     if (await raiseIssueButton.isVisible()) {
-      //await raiseIssueButton.click();
+      await raiseIssueButton.click();
       await page.waitForTimeout(2000);
       // Save to database (AWB, date, category)
       try {
